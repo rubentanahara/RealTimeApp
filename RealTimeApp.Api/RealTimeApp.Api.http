@@ -1,0 +1,6 @@
+@RealTimeApp.Api_HostAddress = http://localhost:5057
+
+GET {{RealTimeApp.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
