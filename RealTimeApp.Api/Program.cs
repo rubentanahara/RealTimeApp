@@ -109,10 +109,10 @@ var signalRBuilder = builder.Services.AddSignalR(options =>
 });
 
 // Use Azure SignalR in production, local SignalR in development
-//if (!builder.Environment.IsDevelopment())
-//{
+if (!builder.Environment.IsDevelopment())
+{
     signalRBuilder.AddAzureSignalR(builder.Configuration["SignalRConnectionString"]);
-//}
+}
 
 // Configure Repositories
 builder.Services.AddScoped<ITripRepository, TripRepository>();
