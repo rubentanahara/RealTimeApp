@@ -13,10 +13,27 @@ using RealTimeApp.Domain.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Enable logging for Azure Identity
+builder.Logging.AddConsole();
+builder.Logging.SetMinimumLevel(LogLevel.Debug);
+
+// Configure AzureCliCredential with diagnostics
+var credentialOptions = new AzureCliCredentialOptions
+{
+    Diagnostics =
+    {
+         IsLoggingEnabled = true,
+         IsLoggingContentEnabled = true
+    }
+};
+
+var credential = new AzureCliCredential(credentialOptions);
+
 // Add Key Vault configuration
 var keyVaultName = builder.Configuration["KeyVaultName"] ?? "realtime-app-kv";
 var keyVaultUri = new Uri($"https://{keyVaultName}.vault.azure.net/");
-builder.Configuration.AddAzureKeyVault(keyVaultUri, new DefaultAzureCredential());
+
+builder.Configuration.AddAzureKeyVault(keyVaultUri, credential);
 
 // Add services to the container
 builder.Services.AddControllers();
