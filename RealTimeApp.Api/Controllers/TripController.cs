@@ -31,6 +31,8 @@ public class TripController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<IEnumerable<TripDto>>> GetAllTrips()
     {
+        // Uses Redis cache-first strategy with database fallback
+        // Cache updates handled via Service Bus for consistency across services
         var trips = await _tripService.GetAllTripsAsync();
         return Ok(trips);
     }
@@ -38,6 +40,8 @@ public class TripController : ControllerBase
     [HttpGet("{id}")]
     public async Task<ActionResult<TripDto>> GetTripById(Guid id)
     {
+        // Uses Redis cache-first strategy with database fallback
+        // Cache updates handled via Service Bus for consistency across services
         var trip = await _tripService.GetTripByIdAsync(id);
         if (trip == null)
             return NotFound();
@@ -48,6 +52,8 @@ public class TripController : ControllerBase
     [HttpGet("number/{tripNumber}")]
     public async Task<ActionResult<TripDto>> GetTripByNumber(string tripNumber)
     {
+        // Uses Redis cache-first strategy with database fallback
+        // Cache updates handled via Service Bus for consistency across services
         var trip = await _tripService.GetTripByNumberAsync(tripNumber);
         if (trip == null)
             return NotFound();
