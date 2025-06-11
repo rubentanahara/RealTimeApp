@@ -1,5 +1,6 @@
 using Azure.Messaging.ServiceBus;
 using Microsoft.EntityFrameworkCore;
+using RealTimeApp.Infrastructure.Configuration;
 using RealTimeApp.Infrastructure.Data;
 using RealTimeApp.Infrastructure.Services;
 using RealTimeApp.SyncApi.Services;
@@ -65,6 +66,10 @@ var redisConnectionString = builder.Configuration["RedisConnectionString"]
     ?? throw new InvalidOperationException("Redis connection string is not configured");
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     ConnectionMultiplexer.Connect(redisConnectionString));
+
+// Configure Redis Cache options
+builder.Services.Configure<RedisCacheOptions>(
+    builder.Configuration.GetSection(RedisCacheOptions.SectionName));
 builder.Services.AddSingleton<IRedisCacheService, RedisCacheService>();
 
 // Configure Azure Service Bus

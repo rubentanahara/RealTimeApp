@@ -9,6 +9,7 @@ public interface IRedisCacheService
 {
     Task<Trip?> GetTripAsync(string tripNumber);
     Task SetTripAsync(Trip trip);
+    Task SetTripAsync(Trip trip, TimeSpan? expiry);
     Task RemoveTripAsync(string tripNumber);
     Task<IEnumerable<Trip>> GetAllTripsAsync();
 } 

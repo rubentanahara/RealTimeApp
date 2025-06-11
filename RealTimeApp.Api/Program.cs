@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using RealTimeApp.Api.Hubs;
 using RealTimeApp.Application.Interfaces;
+using RealTimeApp.Infrastructure.Configuration;
 using RealTimeApp.Infrastructure.Data;
 using RealTimeApp.Infrastructure.Repositories;
 using RealTimeApp.Infrastructure.Services;
@@ -79,6 +80,10 @@ if (string.IsNullOrEmpty(redisConfig))
     throw new InvalidOperationException("Missing Redis connection string in configuration.");
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     ConnectionMultiplexer.Connect(redisConfig));
+
+// Configure Redis Cache options
+builder.Services.Configure<RedisCacheOptions>(
+    builder.Configuration.GetSection(RedisCacheOptions.SectionName));
 builder.Services.AddScoped<IRedisCacheService, RedisCacheService>();
 
 // Configure SignalR
