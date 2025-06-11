@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using RealTimeApp.Application.DTOs;
 using RealTimeApp.Application.Interfaces;
@@ -21,12 +22,43 @@ public class TripService : ITripService
 
     public async Task<TripDto?> GetTripByIdAsync(Guid id)
     {
+        // Try cache first - get all trips from cache and find by ID
+        try
+        {
+            var cachedTrips = await _cacheService.GetAllTripsAsync();
+            var cachedTrip = cachedTrips?.FirstOrDefault(t => t.Id == id);
+            if (cachedTrip != null)
+            {
+                return MapToDto(cachedTrip);
+            }
+        }
+        catch (Exception)
+        {
+            // If cache fails, continue to database fallback
+        }
+
+        // Fallback to database
         var trip = await _tripRepository.GetByIdAsync(id);
         return trip == null ? null : MapToDto(trip);
     }
 
     public async Task<IEnumerable<TripDto>> GetAllTripsAsync()
     {
+        // Try cache first
+        try
+        {
+            var cachedTrips = await _cacheService.GetAllTripsAsync();
+            if (cachedTrips?.Any() == true)
+            {
+                return cachedTrips.Select(MapToDto);
+            }
+        }
+        catch (Exception)
+        {
+            // If cache fails, continue to database fallback
+        }
+
+        // Fallback to database
         var trips = await _tripRepository.GetAllAsync();
         return trips.Select(MapToDto);
     }
@@ -45,7 +77,8 @@ public class TripService : ITripService
             Version = 1
         };
         await _tripRepository.AddAsync(trip);
-        // Cache will be updated via Service Bus flow for consistency
+        
+        // Cache will be updated via Service Bus flow for consistency and sequential processing
         return MapToDto(trip);
     }
 
@@ -66,7 +99,8 @@ public class TripService : ITripService
         }
         
         await _tripRepository.UpdateAsync(trip);
-        // Cache will be updated via Service Bus flow for consistency
+        
+        // Cache will be updated via Service Bus flow for consistency and sequential processing
         return MapToDto(trip);
     }
 
@@ -78,7 +112,8 @@ public class TripService : ITripService
 
         trip.Complete();
         await _tripRepository.UpdateAsync(trip);
-        // Cache will be updated via Service Bus flow for consistency
+        
+        // Cache will be updated via Service Bus flow for consistency and sequential processing
         return MapToDto(trip);
     }
 
