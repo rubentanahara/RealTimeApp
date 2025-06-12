@@ -8,6 +8,19 @@
 
 set -e  # Exit on any error
 
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+SQL_DIR="$PROJECT_ROOT/sql"
+
+# Load environment variables
+if [ -f "$PROJECT_ROOT/.env" ]; then
+    source "$PROJECT_ROOT/.env"
+else
+    echo "❌ .env file not found. Please create it with SQL_SERVER_PASSWORD"
+    exit 1
+fi
+
 echo "🚀 RealTimeApp - Starting Everything..."
 echo ""
 
@@ -28,7 +41,7 @@ EVENTGRID_TOPIC="sql-changes-topic"
 echo "1. 🎯 Starting Applications..."
 
 # Create logs directory first
-mkdir -p logs
+mkdir -p "$PROJECT_ROOT/logs"
 
 # Kill existing processes
 echo "   🛑 Stopping existing applications..."
@@ -39,31 +52,31 @@ sleep 2
 
 # Start Main API
 echo "   🌐 Starting Main API (port 5000)..."
-cd RealTimeApp.Api
-dotnet run --urls="http://localhost:5000" > ../logs/api.log 2>&1 &
+cd "$PROJECT_ROOT/RealTimeApp.Api"
+dotnet run --urls="http://localhost:5000" > "$PROJECT_ROOT/logs/api.log" 2>&1 &
 API_PID=$!
-cd ..
+cd "$PROJECT_ROOT"
 
-# Start SyncAPI  
+# Start SyncAPI
 echo "   ⚡ Starting SyncAPI (port 5001)..."
-cd RealTimeApp.SyncApi
-dotnet run --urls="http://localhost:5001" > ../logs/syncapi.log 2>&1 &
+cd "$PROJECT_ROOT/RealTimeApp.SyncApi"
+dotnet run --urls="http://localhost:5001" > "$PROJECT_ROOT/logs/syncapi.log" 2>&1 &
 SYNCAPI_PID=$!
-cd ..
+cd "$PROJECT_ROOT"
 
 # Start Frontend
 echo "   🎨 Starting Frontend (port 3000)..."
-cd realtime-app-frontend
-npm run dev > ../logs/frontend.log 2>&1 &
+cd "$PROJECT_ROOT/realtime-app-frontend"
+npm run dev > "$PROJECT_ROOT/logs/frontend.log" 2>&1 &
 FRONTEND_PID=$!
-cd ..
+cd "$PROJECT_ROOT"
 
 echo "   ⏳ Waiting for applications to start..."
 sleep 10
 
 # Check if apps are running
 API_RUNNING=false
-SYNCAPI_RUNNING=false  
+SYNCAPI_RUNNING=false
 FRONTEND_RUNNING=false
 
 if curl -s http://localhost:5000/swagger &> /dev/null; then
@@ -147,38 +160,84 @@ echo ""
 echo "3. 🧪 Setting up test data..."
 
 if [ "$SQL_CONNECTED" = true ]; then
+    # Use SQL password from .env file
+    if [ -z "$SQL_SERVER_PASSWORD" ]; then
+        echo "❌ SQL_SERVER_PASSWORD not set in .env file"
+        exit 1
+    fi
+    
+    echo "   ✅ Using SQL password from .env file"
+    
     # Try to add test data using sqlcmd first (more reliable)
     echo "   📊 Adding test data to database..."
     if command -v sqlcmd &> /dev/null; then
         echo "   🔧 Using sqlcmd to add test data..."
-        if sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "NewS3cureP@ssw0rd" -i setup-test-data.sql &> logs/sql-setup.log; then
+        
+        # Test SQL connection first
+        echo "   🔍 Testing SQL connection..."
+        if ! sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "$SQL_SERVER_PASSWORD" -Q "SELECT 1" -h -1 &> /dev/null; then
+            echo "❌ Failed to connect to SQL database"
+            echo "   💡 Check your SQL server firewall rules and credentials"
+            exit 1
+        fi
+        
+        echo "   ✅ SQL connection successful"
+        
+        # Run the setup script
+        if sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "$SQL_SERVER_PASSWORD" -i "$SQL_DIR/setup-test-data.sql" &> "$PROJECT_ROOT/logs/sql-setup.log"; then
             echo "   ✅ Test data added successfully via sqlcmd"
         else
             echo "   ⚠️  sqlcmd failed, trying Azure CLI..."
+            echo "   📝 Check logs at: $PROJECT_ROOT/logs/sql-setup.log"
+            
             # Fallback to Azure CLI
+            echo "   🔄 Using Azure CLI as fallback..."
             DRIVERS_SQL="IF NOT EXISTS (SELECT 1 FROM Drivers WHERE Id = '550e8400-e29b-41d4-a716-446655440001') BEGIN INSERT INTO Drivers (Id, Name, LicenseNumber, Status, LastModified, Version) VALUES ('550e8400-e29b-41d4-a716-446655440001', 'John Doe', 'DL123456', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440002', 'Jane Smith', 'DL789012', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440003', 'Mike Johnson', 'DL345678', 0, GETUTCDATE(), 1) END"
             VEHICLES_SQL="IF NOT EXISTS (SELECT 1 FROM Vehicles WHERE Id = '550e8400-e29b-41d4-a716-446655440001') BEGIN INSERT INTO Vehicles (Id, LicensePlate, Model, Status, LastModified, Version) VALUES ('550e8400-e29b-41d4-a716-446655440001', 'ABC123', 'Ford Transit', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440002', 'XYZ789', 'Chevrolet Express', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440003', 'DEF456', 'Mercedes Sprinter', 0, GETUTCDATE(), 1) END"
-            az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$DRIVERS_SQL" --resource-group $RESOURCE_GROUP &> /dev/null || echo "     ⚠️  Azure CLI insert may have failed"
-            az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$VEHICLES_SQL" --resource-group $RESOURCE_GROUP &> /dev/null || echo "     ⚠️  Azure CLI insert may have failed"
+            
+            if az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$DRIVERS_SQL" --resource-group $RESOURCE_GROUP &> /dev/null; then
+                echo "   ✅ Drivers added successfully"
+            else
+                echo "   ⚠️  Failed to add drivers via Azure CLI"
+            fi
+            
+            if az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$VEHICLES_SQL" --resource-group $RESOURCE_GROUP &> /dev/null; then
+                echo "   ✅ Vehicles added successfully"
+            else
+                echo "   ⚠️  Failed to add vehicles via Azure CLI"
+            fi
         fi
     else
         echo "   ⚠️  sqlcmd not found, trying Azure CLI..."
         # Use Azure CLI as fallback
+        echo "   🔄 Using Azure CLI as fallback..."
         DRIVERS_SQL="IF NOT EXISTS (SELECT 1 FROM Drivers WHERE Id = '550e8400-e29b-41d4-a716-446655440001') BEGIN INSERT INTO Drivers (Id, Name, LicenseNumber, Status, LastModified, Version) VALUES ('550e8400-e29b-41d4-a716-446655440001', 'John Doe', 'DL123456', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440002', 'Jane Smith', 'DL789012', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440003', 'Mike Johnson', 'DL345678', 0, GETUTCDATE(), 1) END"
         VEHICLES_SQL="IF NOT EXISTS (SELECT 1 FROM Vehicles WHERE Id = '550e8400-e29b-41d4-a716-446655440001') BEGIN INSERT INTO Vehicles (Id, LicensePlate, Model, Status, LastModified, Version) VALUES ('550e8400-e29b-41d4-a716-446655440001', 'ABC123', 'Ford Transit', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440002', 'XYZ789', 'Chevrolet Express', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440003', 'DEF456', 'Mercedes Sprinter', 0, GETUTCDATE(), 1) END"
-        az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$DRIVERS_SQL" --resource-group $RESOURCE_GROUP &> /dev/null || echo "     ⚠️  Azure CLI insert may have failed"
-        az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$VEHICLES_SQL" --resource-group $RESOURCE_GROUP &> /dev/null || echo "     ⚠️  Azure CLI insert may have failed"
+        
+        if az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$DRIVERS_SQL" --resource-group $RESOURCE_GROUP &> /dev/null; then
+            echo "   ✅ Drivers added successfully"
+        else
+            echo "   ⚠️  Failed to add drivers via Azure CLI"
+        fi
+        
+        if az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$VEHICLES_SQL" --resource-group $RESOURCE_GROUP &> /dev/null; then
+            echo "   ✅ Vehicles added successfully"
+        else
+            echo "   ⚠️  Failed to add vehicles via Azure CLI"
+        fi
     fi
 
     # Get available driver and vehicle
     echo "   🔍 Finding available driver and vehicle..."
     
-    # Use sqlcmd for reliable querying (Azure CLI sql query may not be available)
+    # Use sqlcmd for reliable querying
     if command -v sqlcmd &> /dev/null; then
-        DRIVER_ID=$(sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "NewS3cureP@ssw0rd" -Q "SELECT TOP 1 Id FROM Drivers" -h -1 2>/dev/null | tr -d ' ' | grep -E '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$' | head -1 || echo "")
-        VEHICLE_ID=$(sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "NewS3cureP@ssw0rd" -Q "SELECT TOP 1 Id FROM Vehicles" -h -1 2>/dev/null | tr -d ' ' | grep -E '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$' | head -1 || echo "")
+        echo "   🔧 Using sqlcmd to query IDs..."
+        DRIVER_ID=$(sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "$SQL_SERVER_PASSWORD" -Q "SELECT TOP 1 Id FROM Drivers" -h -1 2>/dev/null | tr -d ' ' | grep -E '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$' | head -1 || echo "")
+        VEHICLE_ID=$(sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "$SQL_SERVER_PASSWORD" -Q "SELECT TOP 1 Id FROM Vehicles" -h -1 2>/dev/null | tr -d ' ' | grep -E '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$' | head -1 || echo "")
     else
         # Fallback to known test IDs
+        echo "   ⚠️  sqlcmd not found, using default test IDs..."
         DRIVER_ID="550e8400-e29b-41d4-a716-446655440001"
         VEHICLE_ID="550e8400-e29b-41d4-a716-446655440001"
     fi
@@ -232,31 +291,26 @@ echo "=================================="
 echo ""
 echo "🌐 Open Apps:"
 echo "   • Main API: open http://localhost:5000/swagger"
-echo "   • SyncAPI: open http://localhost:5001/swagger" 
+echo "   • SyncAPI: open http://localhost:5001/swagger"
 echo "   • Frontend: open http://localhost:3000"
 echo ""
 echo "🔧 Fix Database (if FK errors):"
-echo "   sqlcmd -S ${SQL_SERVER}.database.windows.net,1433 -d $SQL_DATABASE -U sqladmin -P 'NewS3cureP@ssw0rd' -i setup-test-data.sql"
-echo ""
-echo "🧪 Test API:"
-echo "   curl -X POST http://localhost:5000/api/trip \\"
-echo "     -H \"Content-Type: application/json\" \\"
-echo "     -d '{\"tripNumber\": \"MANUAL-TEST\", \"driverId\": \"$DRIVER_ID\", \"vehicleId\": \"$VEHICLE_ID\"}'"
+echo "   sqlcmd -S ${SQL_SERVER}.database.windows.net,1433 -d $SQL_DATABASE -U sqladmin -P \"\$(az sql server list-admin-passwords --name $SQL_SERVER --resource-group $RESOURCE_GROUP --query 'currentPassword' -o tsv)\" -i $SQL_DIR/setup-test-data.sql"
 echo ""
 echo "📊 Check Logs:"
-echo "   • API: tail -f logs/api.log"
-echo "   • SyncAPI: tail -f logs/syncapi.log"
-echo "   • Frontend: tail -f logs/frontend.log"
+echo "   • API: tail -f $PROJECT_ROOT/logs/api.log"
+echo "   • SyncAPI: tail -f $PROJECT_ROOT/logs/syncapi.log"
+echo "   • Frontend: tail -f $PROJECT_ROOT/logs/frontend.log"
 echo ""
 echo "🛑 Stop All:"
 echo "   pkill -f 'dotnet run'; pkill -f 'npm run dev'"
 echo ""
 
 # Save PIDs for easy cleanup
-echo "$API_PID" > logs/api.pid 2>/dev/null || true
-echo "$SYNCAPI_PID" > logs/syncapi.pid 2>/dev/null || true
-echo "$FRONTEND_PID" > logs/frontend.pid 2>/dev/null || true
+echo "$API_PID" > "$PROJECT_ROOT/logs/api.pid" 2>/dev/null || true
+echo "$SYNCAPI_PID" > "$PROJECT_ROOT/logs/syncapi.pid" 2>/dev/null || true
+echo "$FRONTEND_PID" > "$PROJECT_ROOT/logs/frontend.pid" 2>/dev/null || true
 
 echo "🎉 RealTimeApp is ready! Check the applications above."
 echo ""
-echo "💡 To restart everything, just run: ./run-realtime-app.sh" 
+echo "💡 To restart everything, just run: $SCRIPT_DIR/run-realtime-app.sh" 
