@@ -1,316 +1,310 @@
 #!/bin/bash
 
 # =============================================================================
-# RealTimeApp - Single Command Runner
+# RealTimeApp - Start All Components
 # =============================================================================
-# This script does everything: start apps, check connections, and test data flow
+# This script starts all components of the RealTimeApp:
+# 1. Main API (port 5000)
+# 2. SyncAPI (port 5001)
+# 3. Frontend (port 3000)
 # =============================================================================
-
-set -e  # Exit on any error
 
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-SQL_DIR="$PROJECT_ROOT/sql"
 
 # Load environment variables
 if [ -f "$PROJECT_ROOT/.env" ]; then
     source "$PROJECT_ROOT/.env"
 else
-    echo "❌ .env file not found. Please create it with SQL_SERVER_PASSWORD"
+    echo -e "${RED}❌ .env file not found. Please create it with required variables${NC}"
     exit 1
 fi
 
-echo "🚀 RealTimeApp - Starting Everything..."
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+# Function to check if a port is in use
+check_port() {
+    local port=$1
+    if lsof -i :$port > /dev/null 2>&1; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to check Azure service connection
+check_azure_service() {
+    local service_name=$1
+    local service_type=$2
+    local resource_group=$RESOURCE_GROUP
+    
+    echo -e "${BLUE}Checking $service_type connection...${NC}"
+    
+    case $service_type in
+        "sql")
+            if [ -z "$SQL_SERVER_PASSWORD" ]; then
+                echo -e "${RED}❌ SQL_SERVER_PASSWORD not set in .env file${NC}"
+                return 1
+            fi
+            
+            # Try to connect to SQL Server
+            if sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "$SQL_SERVER_PASSWORD" -Q "SELECT 1" > /dev/null 2>&1; then
+                echo -e "${GREEN}✅ SQL Server connection successful${NC}"
+                return 0
+            else
+                echo -e "${RED}❌ SQL Server connection failed${NC}"
+                return 1
+            fi
+            ;;
+            
+        "redis")
+            if [ -z "$REDIS_PASSWORD" ]; then
+                echo -e "${RED}❌ REDIS_PASSWORD not set in .env file${NC}"
+                return 1
+            fi
+            
+            # Try to connect to Redis
+            if redis-cli -h "${REDIS_NAME}.redis.cache.windows.net" -p 6380 --tls -a "$REDIS_PASSWORD" ping > /dev/null 2>&1; then
+                echo -e "${GREEN}✅ Redis connection successful${NC}"
+                return 0
+            else
+                echo -e "${RED}❌ Redis connection failed${NC}"
+                return 1
+            fi
+            ;;
+            
+        "servicebus")
+            if [ -z "$SERVICEBUS_CONNECTION" ]; then
+                echo -e "${RED}❌ SERVICEBUS_CONNECTION not set in .env file${NC}"
+                return 1
+            fi
+            
+            # Try to connect to Service Bus
+            if az servicebus queue show --name $SERVICEBUS_QUEUE --namespace-name $SERVICEBUS_NAME --resource-group $resource_group > /dev/null 2>&1; then
+                echo -e "${GREEN}✅ Service Bus connection successful${NC}"
+                return 0
+            else
+                echo -e "${RED}❌ Service Bus connection failed${NC}"
+                return 1
+            fi
+            ;;
+            
+        "signalr")
+            if [ -z "$SIGNALR_CONNECTION" ]; then
+                echo -e "${RED}❌ SIGNALR_CONNECTION not set in .env file${NC}"
+                return 1
+            fi
+            
+            # Try to connect to SignalR
+            if az signalr show --name $SIGNALR_NAME --resource-group $resource_group > /dev/null 2>&1; then
+                echo -e "${GREEN}✅ SignalR connection successful${NC}"
+                return 0
+            else
+                echo -e "${RED}❌ SignalR connection failed${NC}"
+                return 1
+            fi
+            ;;
+            
+        "eventgrid")
+            if [ -z "$EVENTGRID_TOPIC_ENDPOINT" ] || [ -z "$EVENTGRID_TOPIC_KEY" ]; then
+                echo -e "${RED}❌ EVENTGRID_TOPIC_ENDPOINT or EVENTGRID_TOPIC_KEY not set in .env file${NC}"
+                return 1
+            fi
+            
+            # Try to connect to Event Grid
+            if az eventgrid topic show --name $EVENTGRID_TOPIC --resource-group $resource_group > /dev/null 2>&1; then
+                echo -e "${GREEN}✅ Event Grid connection successful${NC}"
+                return 0
+            else
+                echo -e "${RED}❌ Event Grid connection failed${NC}"
+                return 1
+            fi
+            ;;
+            
+        *)
+            echo -e "${RED}❌ Unknown service type: $service_type${NC}"
+            return 1
+            ;;
+    esac
+}
+
+# Function to add test data to the database
+add_test_data() {
+    echo -e "${BLUE}Adding test data to the database...${NC}"
+    
+    if [ -z "$SQL_SERVER_PASSWORD" ]; then
+        echo -e "${RED}❌ SQL_SERVER_PASSWORD not set in .env file${NC}"
+        return 1
+    fi
+    
+    # Try using sqlcmd first
+    if command -v sqlcmd &> /dev/null; then
+        # Add test driver
+        sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "$SQL_SERVER_PASSWORD" -Q "
+        IF NOT EXISTS (SELECT 1 FROM Drivers WHERE Id = '550e8400-e29b-41d4-a716-446655440001')
+        BEGIN
+            INSERT INTO Drivers (Id, Name, LicenseNumber, Status)
+            VALUES ('550e8400-e29b-41d4-a716-446655440001', 'Test Driver', 'TEST123', 'Active')
+        END"
+        
+        # Add test vehicle
+        sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "$SQL_SERVER_PASSWORD" -Q "
+        IF NOT EXISTS (SELECT 1 FROM Vehicles WHERE Id = '550e8400-e29b-41d4-a716-446655440001')
+        BEGIN
+            INSERT INTO Vehicles (Id, PlateNumber, Model, Status)
+            VALUES ('550e8400-e29b-41d4-a716-446655440001', 'TEST123', 'Test Model', 'Active')
+        END"
+        
+        echo -e "${GREEN}✅ Test data added successfully using sqlcmd${NC}"
+        return 0
+    else
+        # Fallback to Azure CLI
+        echo -e "${YELLOW}⚠️  sqlcmd not found, trying Azure CLI...${NC}"
+        
+        # Add test driver
+        az sql db query \
+            --server $SQL_SERVER \
+            --name $SQL_DATABASE \
+            --resource-group $RESOURCE_GROUP \
+            --query "
+            IF NOT EXISTS (SELECT 1 FROM Drivers WHERE Id = '550e8400-e29b-41d4-a716-446655440001')
+            BEGIN
+                INSERT INTO Drivers (Id, Name, LicenseNumber, Status)
+                VALUES ('550e8400-e29b-41d4-a716-446655440001', 'Test Driver', 'TEST123', 'Active')
+            END"
+        
+        # Add test vehicle
+        az sql db query \
+            --server $SQL_SERVER \
+            --name $SQL_DATABASE \
+            --resource-group $RESOURCE_GROUP \
+            --query "
+            IF NOT EXISTS (SELECT 1 FROM Vehicles WHERE Id = '550e8400-e29b-41d4-a716-446655440001')
+            BEGIN
+                INSERT INTO Vehicles (Id, PlateNumber, Model, Status)
+                VALUES ('550e8400-e29b-41d4-a716-446655440001', 'TEST123', 'Test Model', 'Active')
+            END"
+        
+        echo -e "${GREEN}✅ Test data added successfully using Azure CLI${NC}"
+        return 0
+    fi
+}
+
+# =============================================================================
+# Main Script
+# =============================================================================
+
+echo "🚀 Starting RealTimeApp..."
 echo ""
 
-# =============================================================================
-# Configuration
-# =============================================================================
-RESOURCE_GROUP="realtime-app-rg"
-SQL_SERVER="realtimeappsqlsrv"
-SQL_DATABASE="RealTimeAppDb"
-REDIS_NAME="realtimeappredis"
-SERVICEBUS_NAME="realtimeappbus"
-SIGNALR_NAME="realtimeappsignalr"
-EVENTGRID_TOPIC="sql-changes-topic"
+# Check if ports are available
+echo -e "${BLUE}Checking port availability...${NC}"
 
-# =============================================================================
-# Step 1: Start Applications
-# =============================================================================
-echo "1. 🎯 Starting Applications..."
+if check_port $API_PORT; then
+    echo -e "${RED}❌ Port $API_PORT is already in use${NC}"
+    exit 1
+fi
 
-# Create logs directory first
-mkdir -p "$PROJECT_ROOT/logs"
+if check_port $SYNCAPI_PORT; then
+    echo -e "${RED}❌ Port $SYNCAPI_PORT is already in use${NC}"
+    exit 1
+fi
 
-# Kill existing processes
-echo "   🛑 Stopping existing applications..."
-pkill -f "dotnet run" 2>/dev/null || true
-pkill -f "npm run dev" 2>/dev/null || true
-pkill -f "next dev" 2>/dev/null || true
-sleep 2
+if check_port $FRONTEND_PORT; then
+    echo -e "${RED}❌ Port $FRONTEND_PORT is already in use${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}✅ All ports are available${NC}"
+
+# Check Azure service connections
+echo ""
+echo -e "${BLUE}Checking Azure service connections...${NC}"
+
+check_azure_service "$SQL_SERVER" "sql"
+check_azure_service "$REDIS_NAME" "redis"
+check_azure_service "$SERVICEBUS_NAME" "servicebus"
+check_azure_service "$SIGNALR_NAME" "signalr"
+check_azure_service "$EVENTGRID_TOPIC" "eventgrid"
+
+# Add test data
+echo ""
+add_test_data
+
+# Start the applications
+echo ""
+echo -e "${BLUE}Starting applications...${NC}"
 
 # Start Main API
-echo "   🌐 Starting Main API (port 5000)..."
-cd "$PROJECT_ROOT/RealTimeApp.Api"
-dotnet run --urls="http://localhost:5000" > "$PROJECT_ROOT/logs/api.log" 2>&1 &
+echo -e "${BLUE}Starting Main API on port $API_PORT...${NC}"
+cd "$PROJECT_ROOT/RealTimeApp.Api" && dotnet run --urls "http://localhost:$API_PORT" > "$PROJECT_ROOT/logs/api.log" 2>&1 &
 API_PID=$!
-cd "$PROJECT_ROOT"
 
 # Start SyncAPI
-echo "   ⚡ Starting SyncAPI (port 5001)..."
-cd "$PROJECT_ROOT/RealTimeApp.SyncApi"
-dotnet run --urls="http://localhost:5001" > "$PROJECT_ROOT/logs/syncapi.log" 2>&1 &
+echo -e "${BLUE}Starting SyncAPI on port $SYNCAPI_PORT...${NC}"
+cd "$PROJECT_ROOT/RealTimeApp.SyncApi" && dotnet run --urls "http://localhost:$SYNCAPI_PORT" > "$PROJECT_ROOT/logs/syncapi.log" 2>&1 &
 SYNCAPI_PID=$!
-cd "$PROJECT_ROOT"
 
 # Start Frontend
-echo "   🎨 Starting Frontend (port 3000)..."
-cd "$PROJECT_ROOT/realtime-app-frontend"
-npm run dev > "$PROJECT_ROOT/logs/frontend.log" 2>&1 &
+echo -e "${BLUE}Starting Frontend on port $FRONTEND_PORT...${NC}"
+cd "$PROJECT_ROOT/realtime-app-frontend" && npm run dev > "$PROJECT_ROOT/logs/frontend.log" 2>&1 &
 FRONTEND_PID=$!
-cd "$PROJECT_ROOT"
 
-echo "   ⏳ Waiting for applications to start..."
-sleep 10
+# Wait for applications to start
+echo ""
+echo -e "${BLUE}Waiting for applications to start...${NC}"
+sleep 5
 
-# Check if apps are running
-API_RUNNING=false
-SYNCAPI_RUNNING=false
-FRONTEND_RUNNING=false
-
-if curl -s http://localhost:5000/swagger &> /dev/null; then
-    echo "   ✅ Main API running (http://localhost:5000)"
-    API_RUNNING=true
+# Check if applications are running
+if ps -p $API_PID > /dev/null; then
+    echo -e "${GREEN}✅ Main API is running on port $API_PORT${NC}"
 else
-    echo "   ❌ Main API failed to start"
+    echo -e "${RED}❌ Main API failed to start${NC}"
+    exit 1
 fi
 
-if curl -s http://localhost:5001/swagger &> /dev/null; then
-    echo "   ✅ SyncAPI running (http://localhost:5001)"
-    SYNCAPI_RUNNING=true
+if ps -p $SYNCAPI_PID > /dev/null; then
+    echo -e "${GREEN}✅ SyncAPI is running on port $SYNCAPI_PORT${NC}"
 else
-    echo "   ❌ SyncAPI failed to start"
+    echo -e "${RED}❌ SyncAPI failed to start${NC}"
+    exit 1
 fi
 
-if curl -s http://localhost:3000 &> /dev/null; then
-    echo "   ✅ Frontend running (http://localhost:3000)"
-    FRONTEND_RUNNING=true
+if ps -p $FRONTEND_PID > /dev/null; then
+    echo -e "${GREEN}✅ Frontend is running on port $FRONTEND_PORT${NC}"
 else
-    echo "   ❌ Frontend failed to start"
+    echo -e "${RED}❌ Frontend failed to start${NC}"
+    exit 1
 fi
 
 # =============================================================================
-# Step 2: Check Azure Services
+# Final Status
 # =============================================================================
 echo ""
-echo "2. ☁️ Checking Azure Services..."
-
-# SQL Database
-if az sql db show --name $SQL_DATABASE --server $SQL_SERVER --resource-group $RESOURCE_GROUP &> /dev/null; then
-    echo "   ✅ Azure SQL Database: ${SQL_SERVER}.database.windows.net"
-    SQL_CONNECTED=true
-else
-    echo "   ❌ Azure SQL Database not accessible"
-    SQL_CONNECTED=false
-fi
-
-# Redis Cache
-REDIS_STATUS=$(az redis show --name $REDIS_NAME --resource-group $RESOURCE_GROUP --query "provisioningState" -o tsv 2>/dev/null || echo "Unknown")
-if [ "$REDIS_STATUS" = "Succeeded" ]; then
-    echo "   ✅ Azure Redis Cache: ${REDIS_NAME}.redis.cache.windows.net"
-    # Test Redis connection
-    if az redis list-keys --name $REDIS_NAME --resource-group $RESOURCE_GROUP --query "primaryKey" -o tsv &> /dev/null; then
-        echo "   ✅ Redis access key available"
-    else
-        echo "   ⚠️  Redis access key unavailable"
-    fi
-else
-    echo "   ⚠️  Azure Redis Cache status: $REDIS_STATUS"
-fi
-
-# Service Bus
-SB_STATUS=$(az servicebus namespace show --name $SERVICEBUS_NAME --resource-group $RESOURCE_GROUP --query "status" -o tsv 2>/dev/null || echo "Unknown")
-if [ "$SB_STATUS" = "Active" ]; then
-    echo "   ✅ Azure Service Bus: ${SERVICEBUS_NAME}.servicebus.windows.net"
-else
-    echo "   ⚠️  Azure Service Bus status: $SB_STATUS"
-fi
-
-# SignalR
-SIGNALR_STATUS=$(az signalr show --name $SIGNALR_NAME --resource-group $RESOURCE_GROUP --query "provisioningState" -o tsv 2>/dev/null || echo "Unknown")
-if [ "$SIGNALR_STATUS" = "Succeeded" ]; then
-    echo "   ✅ Azure SignalR: ${SIGNALR_NAME}.service.signalr.net"
-else
-    echo "   ⚠️  Azure SignalR status: $SIGNALR_STATUS"
-fi
-
-# Event Grid
-EG_STATUS=$(az eventgrid topic show --name $EVENTGRID_TOPIC --resource-group $RESOURCE_GROUP --query "provisioningState" -o tsv 2>/dev/null || echo "Unknown")
-if [ "$EG_STATUS" = "Succeeded" ]; then
-    echo "   ✅ Azure Event Grid: $EVENTGRID_TOPIC"
-else
-    echo "   ⚠️  Azure Event Grid status: $EG_STATUS"
-fi
-
-# =============================================================================
-# Step 3: Get/Create Test Data
-# =============================================================================
+echo -e "${GREEN}🎉 RealTimeApp is running!${NC}"
 echo ""
-echo "3. 🧪 Setting up test data..."
-
-if [ "$SQL_CONNECTED" = true ]; then
-    # Use SQL password from .env file
-    if [ -z "$SQL_SERVER_PASSWORD" ]; then
-        echo "❌ SQL_SERVER_PASSWORD not set in .env file"
-        exit 1
-    fi
-    
-    echo "   ✅ Using SQL password from .env file"
-    
-    # Try to add test data using sqlcmd first (more reliable)
-    echo "   📊 Adding test data to database..."
-    if command -v sqlcmd &> /dev/null; then
-        echo "   🔧 Using sqlcmd to add test data..."
-        
-        # Test SQL connection first
-        echo "   🔍 Testing SQL connection..."
-        if ! sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "$SQL_SERVER_PASSWORD" -Q "SELECT 1" -h -1 &> /dev/null; then
-            echo "❌ Failed to connect to SQL database"
-            echo "   💡 Check your SQL server firewall rules and credentials"
-            exit 1
-        fi
-        
-        echo "   ✅ SQL connection successful"
-        
-        # Run the setup script
-        if sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "$SQL_SERVER_PASSWORD" -i "$SQL_DIR/setup-test-data.sql" &> "$PROJECT_ROOT/logs/sql-setup.log"; then
-            echo "   ✅ Test data added successfully via sqlcmd"
-        else
-            echo "   ⚠️  sqlcmd failed, trying Azure CLI..."
-            echo "   📝 Check logs at: $PROJECT_ROOT/logs/sql-setup.log"
-            
-            # Fallback to Azure CLI
-            echo "   🔄 Using Azure CLI as fallback..."
-            DRIVERS_SQL="IF NOT EXISTS (SELECT 1 FROM Drivers WHERE Id = '550e8400-e29b-41d4-a716-446655440001') BEGIN INSERT INTO Drivers (Id, Name, LicenseNumber, Status, LastModified, Version) VALUES ('550e8400-e29b-41d4-a716-446655440001', 'John Doe', 'DL123456', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440002', 'Jane Smith', 'DL789012', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440003', 'Mike Johnson', 'DL345678', 0, GETUTCDATE(), 1) END"
-            VEHICLES_SQL="IF NOT EXISTS (SELECT 1 FROM Vehicles WHERE Id = '550e8400-e29b-41d4-a716-446655440001') BEGIN INSERT INTO Vehicles (Id, LicensePlate, Model, Status, LastModified, Version) VALUES ('550e8400-e29b-41d4-a716-446655440001', 'ABC123', 'Ford Transit', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440002', 'XYZ789', 'Chevrolet Express', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440003', 'DEF456', 'Mercedes Sprinter', 0, GETUTCDATE(), 1) END"
-            
-            if az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$DRIVERS_SQL" --resource-group $RESOURCE_GROUP &> /dev/null; then
-                echo "   ✅ Drivers added successfully"
-            else
-                echo "   ⚠️  Failed to add drivers via Azure CLI"
-            fi
-            
-            if az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$VEHICLES_SQL" --resource-group $RESOURCE_GROUP &> /dev/null; then
-                echo "   ✅ Vehicles added successfully"
-            else
-                echo "   ⚠️  Failed to add vehicles via Azure CLI"
-            fi
-        fi
-    else
-        echo "   ⚠️  sqlcmd not found, trying Azure CLI..."
-        # Use Azure CLI as fallback
-        echo "   🔄 Using Azure CLI as fallback..."
-        DRIVERS_SQL="IF NOT EXISTS (SELECT 1 FROM Drivers WHERE Id = '550e8400-e29b-41d4-a716-446655440001') BEGIN INSERT INTO Drivers (Id, Name, LicenseNumber, Status, LastModified, Version) VALUES ('550e8400-e29b-41d4-a716-446655440001', 'John Doe', 'DL123456', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440002', 'Jane Smith', 'DL789012', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440003', 'Mike Johnson', 'DL345678', 0, GETUTCDATE(), 1) END"
-        VEHICLES_SQL="IF NOT EXISTS (SELECT 1 FROM Vehicles WHERE Id = '550e8400-e29b-41d4-a716-446655440001') BEGIN INSERT INTO Vehicles (Id, LicensePlate, Model, Status, LastModified, Version) VALUES ('550e8400-e29b-41d4-a716-446655440001', 'ABC123', 'Ford Transit', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440002', 'XYZ789', 'Chevrolet Express', 0, GETUTCDATE(), 1), ('550e8400-e29b-41d4-a716-446655440003', 'DEF456', 'Mercedes Sprinter', 0, GETUTCDATE(), 1) END"
-        
-        if az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$DRIVERS_SQL" --resource-group $RESOURCE_GROUP &> /dev/null; then
-            echo "   ✅ Drivers added successfully"
-        else
-            echo "   ⚠️  Failed to add drivers via Azure CLI"
-        fi
-        
-        if az sql query --server $SQL_SERVER --database $SQL_DATABASE --queries "$VEHICLES_SQL" --resource-group $RESOURCE_GROUP &> /dev/null; then
-            echo "   ✅ Vehicles added successfully"
-        else
-            echo "   ⚠️  Failed to add vehicles via Azure CLI"
-        fi
-    fi
-
-    # Get available driver and vehicle
-    echo "   🔍 Finding available driver and vehicle..."
-    
-    # Use sqlcmd for reliable querying
-    if command -v sqlcmd &> /dev/null; then
-        echo "   🔧 Using sqlcmd to query IDs..."
-        DRIVER_ID=$(sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "$SQL_SERVER_PASSWORD" -Q "SELECT TOP 1 Id FROM Drivers" -h -1 2>/dev/null | tr -d ' ' | grep -E '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$' | head -1 || echo "")
-        VEHICLE_ID=$(sqlcmd -S "${SQL_SERVER}.database.windows.net,1433" -d $SQL_DATABASE -U sqladmin -P "$SQL_SERVER_PASSWORD" -Q "SELECT TOP 1 Id FROM Vehicles" -h -1 2>/dev/null | tr -d ' ' | grep -E '^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$' | head -1 || echo "")
-    else
-        # Fallback to known test IDs
-        echo "   ⚠️  sqlcmd not found, using default test IDs..."
-        DRIVER_ID="550e8400-e29b-41d4-a716-446655440001"
-        VEHICLE_ID="550e8400-e29b-41d4-a716-446655440001"
-    fi
-    
-    if [ -n "$DRIVER_ID" ] && [ -n "$VEHICLE_ID" ]; then
-        echo "   ✅ Found Driver ID: $DRIVER_ID"
-        echo "   ✅ Found Vehicle ID: $VEHICLE_ID"
-        TEST_DATA_READY=true
-    else
-        echo "   ❌ Could not find driver or vehicle in database"
-        echo "   💡 Using default test IDs..."
-        DRIVER_ID="550e8400-e29b-41d4-a716-446655440001"
-        VEHICLE_ID="550e8400-e29b-41d4-a716-446655440001"
-        TEST_DATA_READY=false
-    fi
-else
-    echo "   ⏭️  Skipping database setup (SQL not connected)"
-    DRIVER_ID="550e8400-e29b-41d4-a716-446655440001"
-    VEHICLE_ID="550e8400-e29b-41d4-a716-446655440001"
-    TEST_DATA_READY=false
-fi
-
-# =============================================================================
-# Final Status Report
-# =============================================================================
+echo -e "📊 Status:"
+echo -e "   ✅ Main API: http://localhost:$API_PORT"
+echo -e "   ✅ SyncAPI: http://localhost:$SYNCAPI_PORT"
+echo -e "   ✅ Frontend: http://localhost:$FRONTEND_PORT"
 echo ""
-echo "🎯 RealTimeApp Status Report"
-echo "============================="
+echo -e "📝 Logs:"
+echo -e "   📄 API: $PROJECT_ROOT/logs/api.log"
+echo -e "   📄 SyncAPI: $PROJECT_ROOT/logs/syncapi.log"
+echo -e "   📄 Frontend: $PROJECT_ROOT/logs/frontend.log"
 echo ""
-echo "📱 Applications:"
-[ "$API_RUNNING" = true ] && echo "   ✅ Main API: http://localhost:5000" || echo "   ❌ Main API: Failed to start"
-[ "$SYNCAPI_RUNNING" = true ] && echo "   ✅ SyncAPI: http://localhost:5001" || echo "   ❌ SyncAPI: Failed to start"
-[ "$FRONTEND_RUNNING" = true ] && echo "   ✅ Frontend: http://localhost:3000" || echo "   ❌ Frontend: Failed to start"
-
+echo -e "🛑 To stop all applications, run:"
+echo -e "   pkill -f 'dotnet run'"
+echo -e "   pkill -f 'npm run dev'"
 echo ""
-echo "☁️ Azure Services:"
-[ "$SQL_CONNECTED" = true ] && echo "   ✅ SQL Database" || echo "   ❌ SQL Database"
-[ "$REDIS_STATUS" = "Succeeded" ] && echo "   ✅ Redis Cache" || echo "   ⚠️  Redis Cache ($REDIS_STATUS)"
-[ "$SB_STATUS" = "Active" ] && echo "   ✅ Service Bus" || echo "   ⚠️  Service Bus ($SB_STATUS)"
-[ "$SIGNALR_STATUS" = "Succeeded" ] && echo "   ✅ SignalR" || echo "   ⚠️  SignalR ($SIGNALR_STATUS)"
-[ "$EG_STATUS" = "Succeeded" ] && echo "   ✅ Event Grid" || echo "   ⚠️  Event Grid ($EG_STATUS)"
-
-echo ""
-echo "🧪 Test Data:"
-echo "   👨‍💼 Driver ID: $DRIVER_ID"
-echo "   🚗 Vehicle ID: $VEHICLE_ID"
-
-echo ""
-echo "🎮 Quick Actions:"
-echo "=================================="
-echo ""
-echo "🌐 Open Apps:"
-echo "   • Main API: open http://localhost:5000/swagger"
-echo "   • SyncAPI: open http://localhost:5001/swagger"
-echo "   • Frontend: open http://localhost:3000"
-echo ""
-echo "🔧 Fix Database (if FK errors):"
-echo "   sqlcmd -S ${SQL_SERVER}.database.windows.net,1433 -d $SQL_DATABASE -U sqladmin -P \"\$(az sql server list-admin-passwords --name $SQL_SERVER --resource-group $RESOURCE_GROUP --query 'currentPassword' -o tsv)\" -i $SQL_DIR/setup-test-data.sql"
-echo ""
-echo "📊 Check Logs:"
-echo "   • API: tail -f $PROJECT_ROOT/logs/api.log"
-echo "   • SyncAPI: tail -f $PROJECT_ROOT/logs/syncapi.log"
-echo "   • Frontend: tail -f $PROJECT_ROOT/logs/frontend.log"
-echo ""
-echo "🛑 Stop All:"
-echo "   pkill -f 'dotnet run'; pkill -f 'npm run dev'"
-echo ""
-
-# Save PIDs for easy cleanup
-echo "$API_PID" > "$PROJECT_ROOT/logs/api.pid" 2>/dev/null || true
-echo "$SYNCAPI_PID" > "$PROJECT_ROOT/logs/syncapi.pid" 2>/dev/null || true
-echo "$FRONTEND_PID" > "$PROJECT_ROOT/logs/frontend.pid" 2>/dev/null || true
-
-echo "🎉 RealTimeApp is ready! Check the applications above."
-echo ""
-echo "💡 To restart everything, just run: $SCRIPT_DIR/run-realtime-app.sh" 
+echo -e "💡 To restart everything, just run this script again." 

@@ -9,7 +9,6 @@
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-SQL_DIR="$PROJECT_ROOT/sql"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -125,8 +124,6 @@ REQUIRED_DIRS=(
 REQUIRED_FILES=(
     "RealTimeApp.sln"
     "realtime-app-frontend/package.json"
-    "$SQL_DIR/create_tables.sql"
-    "$SQL_DIR/enable_change_tracking.sql"
 )
 
 # Check directories

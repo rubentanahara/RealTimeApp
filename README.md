@@ -1,3 +1,165 @@
+# RealTimeApp
+
+A real-time application built with .NET and Azure services, featuring real-time updates, event-driven architecture, and modern web technologies.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- Azure CLI
+- .NET SDK 9.0 or higher
+- Node.js 16 or higher
+- SQL Server Command Line Tools (sqlcmd)
+- Redis CLI tools
+
+## Project Structure
+
+The solution consists of the following components:
+
+- **RealTimeApp.Api**: Main API service (port 5000)
+- **RealTimeApp.SyncApi**: Synchronization API service (port 5001)
+- **RealTimeApp.Domain**: Core domain models and interfaces
+- **RealTimeApp.Infrastructure**: Infrastructure implementations
+- **RealTimeApp.Application**: Application services and business logic
+- **realtime-app-frontend**: React-based frontend application (port 3000)
+
+## Setup and Running the Application
+
+The project includes several scripts to help you set up and run the application. Here's how to use them:
+
+### 1. Check Prerequisites
+
+First, run the prerequisites check script to ensure your environment is properly configured:
+
+```bash
+bash scripts/check-prerequisites.sh
+```
+
+This script will verify:
+- Azure CLI installation and login status
+- .NET SDK version
+- Node.js version
+- Required tools (sqlcmd, redis-cli)
+- Project structure
+- Azure permissions
+
+### 2. Generate Environment Configuration
+
+After verifying prerequisites, generate the environment configuration:
+
+```bash
+bash scripts/generate-env.sh
+```
+
+This script will:
+- Create a `.env` file with necessary configuration
+- Configure Azure services (SQL Server, Redis, Service Bus, SignalR, Event Grid)
+- Set up application ports
+- Prompt for SQL Server password
+
+### 3. Run the Application
+
+To start all components of the application:
+
+```bash
+bash scripts/run-realtime-app.sh
+```
+
+This will start:
+- Main API (port 5000)
+- SyncAPI (port 5001)
+- Frontend (port 3000)
+
+The script also:
+- Checks port availability
+- Verifies Azure service connections
+- Adds test data to the database
+- Starts all components in the correct order
+
+### 4. Test Real-time Flow
+
+To test the real-time architecture flow:
+
+```bash
+bash scripts/test-realtime-flow.sh
+```
+
+This test script:
+1. Creates a test trip in the database
+2. Verifies Event Grid → Service Bus → SyncAPI processing
+3. Updates trip status
+4. Verifies real-time updates through SignalR
+5. Checks Redis cache and database consistency
+
+## Architecture
+
+The application uses several Azure services for real-time functionality:
+
+- **Azure SQL Server**: Main database with change tracking enabled
+- **Azure Redis Cache**: Caching layer for real-time data
+- **Azure Service Bus**: Message queue for async processing
+- **Azure SignalR**: Real-time communication hub
+- **Azure Event Grid**: Event routing for database changes
+
+## Troubleshooting
+
+If you encounter issues:
+
+1. Check the prerequisites script output for any missing requirements
+2. Verify Azure service connections using the run script
+3. Check the logs in the `logs` directory
+4. Ensure all required ports are available
+5. Verify Azure permissions for all services
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## ⚠️ Important Notes
+
+- The AI features are currently in POC/Demo stage
+- Some features require Azure services
+- Local development is supported with Docker
+- Production deployment requires proper Azure service configuration
+
+## 🆘 Troubleshooting
+
+1. **Database Connection Issues**
+   - Verify SQL Server firewall rules
+   - Check connection string in Key Vault
+   - Ensure SQL Server is running
+
+2. **Redis Connection Issues**
+   - Verify Redis connection string
+   - Check Redis firewall rules
+   - Ensure Redis is running
+
+3. **Service Bus Issues**
+   - Verify Service Bus connection string
+   - Check queue exists
+   - Ensure proper permissions
+
+4. **SignalR Issues**
+   - Verify SignalR connection string
+   - Check CORS configuration
+   - Ensure proper WebSocket support
+
+## 📚 Additional Resources
+
+- [Azure SQL Database Documentation](https://docs.microsoft.com/en-us/azure/azure-sql/)
+- [Azure Redis Cache Documentation](https://docs.microsoft.com/en-us/azure/azure-cache-for-redis/)
+- [Azure Service Bus Documentation](https://docs.microsoft.com/en-us/azure/service-bus-messaging/)
+- [Azure SignalR Documentation](https://docs.microsoft.com/en-us/azure/azure-signalr/)
+- [Azure Event Grid Documentation](https://docs.microsoft.com/en-us/azure/event-grid/)
+
 # RealTimeApp - Real-time Trip Monitoring System
 
 A modern, cloud-native application demonstrating real-time trip monitoring and management using Azure services. This application showcases event-driven architecture, real-time updates, and AI-powered trip monitoring capabilities.
@@ -229,4 +391,114 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [Azure Redis Cache Documentation](https://docs.microsoft.com/en-us/azure/azure-cache-for-redis/)
 - [Azure Service Bus Documentation](https://docs.microsoft.com/en-us/azure/service-bus-messaging/)
 - [Azure SignalR Documentation](https://docs.microsoft.com/en-us/azure/azure-signalr/)
-- [Azure Event Grid Documentation](https://docs.microsoft.com/en-us/azure/event-grid/) 
+- [Azure Event Grid Documentation](https://docs.microsoft.com/en-us/azure/event-grid/)
+
+# RealTimeApp
+
+A real-time application built with .NET and Azure services, featuring real-time updates, event-driven architecture, and modern web technologies.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- Azure CLI
+- .NET SDK 7.0 or higher
+- Node.js 16 or higher
+- SQL Server Command Line Tools (sqlcmd)
+- Redis CLI tools
+
+## Setup and Running the Application
+
+The project includes several scripts to help you set up and run the application. Here's how to use them:
+
+### 1. Check Prerequisites
+
+First, run the prerequisites check script to ensure your environment is properly configured:
+
+```bash
+bash scripts/check-prerequisites.sh
+```
+
+This script will verify:
+- Azure CLI installation and login status
+- .NET SDK version
+- Node.js version
+- Required tools (sqlcmd, redis-cli)
+- Project structure
+- Azure permissions
+
+### 2. Generate Environment Configuration
+
+After verifying prerequisites, generate the environment configuration:
+
+```bash
+bash scripts/generate-env.sh
+```
+
+This script will:
+- Create a `.env` file with necessary configuration
+- Configure Azure services (SQL Server, Redis, Service Bus, SignalR, Event Grid)
+- Set up application ports
+- Prompt for SQL Server password
+
+### 3. Run the Application
+
+To start all components of the application:
+
+```bash
+bash scripts/run-realtime-app.sh
+```
+
+This will start:
+- Main API (port 5000)
+- SyncAPI (port 5001)
+- Frontend (port 3000)
+
+The script also:
+- Checks port availability
+- Verifies Azure service connections
+- Adds test data to the database
+- Starts all components in the correct order
+
+### 4. Test Real-time Flow
+
+To test the real-time architecture flow:
+
+```bash
+bash scripts/test-realtime-flow.sh
+```
+
+This test script:
+1. Creates a test trip in the database
+2. Verifies Event Grid → Service Bus → SyncAPI processing
+3. Updates trip status
+4. Verifies real-time updates through SignalR
+5. Checks Redis cache and database consistency
+
+## Architecture
+
+The application uses several Azure services for real-time functionality:
+
+- **Azure SQL Server**: Main database
+- **Azure Redis Cache**: Caching layer
+- **Azure Service Bus**: Message queue for async processing
+- **Azure SignalR**: Real-time communication
+- **Azure Event Grid**: Event routing
+
+## Troubleshooting
+
+If you encounter issues:
+
+1. Check the prerequisites script output for any missing requirements
+2. Verify Azure service connections using the run script
+3. Check the logs in the `logs` directory
+4. Ensure all required ports are available
+5. Verify Azure permissions for all services
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request 

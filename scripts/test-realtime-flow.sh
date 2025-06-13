@@ -13,13 +13,12 @@
 # Get the directory where the script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-SQL_DIR="$PROJECT_ROOT/sql"
 
 # Load environment variables
 if [ -f "$PROJECT_ROOT/.env" ]; then
     source "$PROJECT_ROOT/.env"
 else
-    echo -e "${RED}❌ .env file not found. Please create it with SQL_SERVER_PASSWORD${NC}"
+    echo -e "${RED}❌ .env file not found. Please create it with required variables${NC}"
     exit 1
 fi
 
@@ -54,10 +53,9 @@ check_redis_cache() {
         
         # Get Redis connection details
         REDIS_HOST="${REDIS_NAME}.redis.cache.windows.net"
-        REDIS_PASSWORD=$(az redis list-keys --name "realtimeappredis" --resource-group "realtime-app-rg" --query "primaryKey" -o tsv 2>/dev/null)
         
         if [ -z "$REDIS_PASSWORD" ]; then
-            echo -e "${RED}❌ Failed to get Redis access key${NC}"
+            echo -e "${RED}❌ REDIS_PASSWORD not set in .env file${NC}"
             return 1
         fi
         
@@ -135,10 +133,9 @@ verify_redis_connection() {
     
     # Get Redis connection details
     REDIS_HOST="${REDIS_NAME}.redis.cache.windows.net"
-    REDIS_PASSWORD=$(az redis list-keys --name "realtimeappredis" --resource-group "realtime-app-rg" --query "primaryKey" -o tsv 2>/dev/null)
     
     if [ -z "$REDIS_PASSWORD" ]; then
-        echo -e "${RED}❌ Failed to get Redis access key${NC}"
+        echo -e "${RED}❌ REDIS_PASSWORD not set in .env file${NC}"
         return 1
     fi
     
@@ -195,7 +192,7 @@ if [ -z "$DRIVER_ID" ] || [ -z "$VEHICLE_ID" ]; then
 fi
 
 # Create trip using API
-TRIP_RESPONSE=$(curl -s -X POST http://localhost:5000/api/trip \
+TRIP_RESPONSE=$(curl -s -X POST http://localhost:$API_PORT/api/trip \
     -H "Content-Type: application/json" \
     -d "{\"tripNumber\": \"TEST-$(date +%s)\", \"driverId\": \"$DRIVER_ID\", \"vehicleId\": \"$VEHICLE_ID\"}")
 
@@ -225,7 +222,7 @@ echo ""
 echo -e "${BLUE}3. Updating trip status...${NC}"
 
 # Update trip status using API
-curl -s -X PUT http://localhost:5000/api/trip/$TRIP_ID/status \
+curl -s -X PUT http://localhost:$API_PORT/api/trip/$TRIP_ID/status \
     -H "Content-Type: application/json" \
     -d '{"status": "InProgress"}' > /dev/null
 
@@ -255,15 +252,6 @@ echo -e "${BLUE}5. Verifying status update in Redis...${NC}"
 # Wait for the status to be updated in Redis
 sleep 2
 
-# Get Redis connection details
-REDIS_HOST="${REDIS_NAME}.redis.cache.windows.net"
-REDIS_PASSWORD=$(az redis list-keys --name "realtimeappredis" --resource-group "realtime-app-rg" --query "primaryKey" -o tsv 2>/dev/null)
-
-if [ -z "$REDIS_PASSWORD" ]; then
-    echo -e "${RED}❌ Failed to get Redis access key${NC}"
-    exit 1
-fi
-
 # Check trip status in Redis
 redis_result=$(redis-cli -h "$REDIS_HOST" -p 6380 --tls -a "$REDIS_PASSWORD" get "trip:$TRIP_NUMBER" 2>/dev/null)
 
@@ -285,7 +273,7 @@ echo ""
 echo -e "${BLUE}6. Completing the trip...${NC}"
 
 # Update trip status to Completed using API
-curl -s -X PUT http://localhost:5000/api/trip/$TRIP_ID/status \
+curl -s -X PUT http://localhost:$API_PORT/api/trip/$TRIP_ID/status \
     -H "Content-Type: application/json" \
     -d '{"status": "Completed"}' > /dev/null
 
